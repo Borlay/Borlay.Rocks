@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 
 namespace Borlay.Rocks.Database
 {
-    public class RocksRepository : ISortedRepository
+    public class RocksRepository //: ISortedRepository
     {
         protected readonly IDictionary<int, RocksInstance> instances;
 
@@ -51,25 +51,25 @@ namespace Borlay.Rocks.Database
             return new RocksTransaction(instance, disposeAction.Dispose);
         }
 
-        /// <summary>
-        /// Get Records in order. Shard index is calculated from parentId
-        /// </summary>
-        /// <typeparam name="T">Record type</typeparam>
-        /// <param name="parentId">Parent id and shard key of sorted records</param>
-        /// <param name="position"></param>
-        /// <param name="columnFamily"></param>
-        /// <returns></returns>
-        public virtual IEnumerable<T> GetRecords<T>(Guid parentId, long position, string columnFamily) where T: ISortableRecord
-        {
-            var instance = instances.GetInstance(parentId, out var shardIndex);
-            return instance.Database.GetRecords<T>(parentId, position, instance.Families[columnFamily], true);
-        }
+        ///// <summary>
+        ///// Get Records in order. Shard index is calculated from parentId
+        ///// </summary>
+        ///// <typeparam name="T">Record type</typeparam>
+        ///// <param name="parentId">Parent id and shard key of sorted records</param>
+        ///// <param name="position"></param>
+        ///// <param name="columnFamily"></param>
+        ///// <returns></returns>
+        //public virtual IEnumerable<T> GetRecords<T>(Guid parentId, long position, string columnFamily) where T: ISortableRecord
+        //{
+        //    var instance = instances.GetInstance(parentId, out var shardIndex);
+        //    return instance.Database.GetRecords<T>(parentId, position, instance.Families[columnFamily], true);
+        //}
 
-        public virtual IEnumerable<T> GetRecords<T>(Guid shardKey, Guid parentId, long position, string columnFamily) where T : ISortableRecord
-        {
-            var instance = instances.GetInstance(shardKey, out var shardIndex);
-            return instance.Database.GetRecords<T>(parentId, position, instance.Families[columnFamily], true);
-        }
+        //public virtual IEnumerable<T> GetRecords<T>(Guid shardKey, Guid parentId, long position, string columnFamily) where T : ISortableRecord
+        //{
+        //    var instance = instances.GetInstance(shardKey, out var shardIndex);
+        //    return instance.Database.GetRecords<T>(parentId, position, instance.Families[columnFamily], true);
+        //}
 
 
         //public IEnumerable<PrivateChannelInfo> GetChannels(Guid userId, long position)
@@ -112,44 +112,5 @@ namespace Borlay.Rocks.Database
         //}
 
         
-    }
-
-    public class RocksTransaction : IDisposable
-    {
-        private readonly Action dispose;
-
-        public RocksInstance Instance { get; }
-
-        public WriteBatch Batch { get; }
-
-        public RocksTransaction(RocksInstance instance, Action dispose)
-        {
-            this.Instance = instance ?? throw new ArgumentNullException(nameof(instance));
-
-            Batch = new WriteBatch();
-        }
-
-
-        private bool commited = false;
-        public virtual void Commit()
-        {
-            if (commited)
-                throw new ObjectDisposedException("Transaction cannot be committed twice");
-
-            commited = true;
-            Instance.Database.Write(Batch);
-        }
-
-        public virtual void Dispose()
-        {
-            try
-            {
-                Batch.Dispose();
-            }
-            finally
-            {
-                dispose?.Invoke();
-            }
-        }
     }
 }

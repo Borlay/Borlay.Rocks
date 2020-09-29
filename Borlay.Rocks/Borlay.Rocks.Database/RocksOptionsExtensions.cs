@@ -42,7 +42,7 @@ namespace Borlay.Rocks.Database
             return options;
         }
 
-        public static ColumnFamilyOptions SetDefaultOptions(this ColumnFamilyOptions options, BlockBasedTableOptions tableOptions, int baseSizeInMB = 256)
+        public static ColumnFamilyOptions SetDefaultOptions(this ColumnFamilyOptions options, BlockBasedTableOptions tableOptions, int fixedPrefixLength, int baseSizeInMB = 256)
         {
             options = options
                 .SetBlockBasedTableFactory(tableOptions)
@@ -61,7 +61,7 @@ namespace Borlay.Rocks.Database
             .SetMaxBytesForLevelBase((ulong)baseSizeInMB * 10 * SizeUnit.MB) // same as level 0 size. // removed number to merge
                                                                       //.SetMaxBytesForLevelMultiplier() // default 10
                                                                       //.SetMemtablePrefixBloomSizeRatio()
-            .SetPrefixExtractor(SliceTransform.CreateFixedPrefix(16))
+            .SetPrefixExtractor(SliceTransform.CreateFixedPrefix((ulong)fixedPrefixLength))
 
             .SetMemtablePrefixBloomSizeRatio(1)
             .SetCompactionReadaheadSize(64 * SizeUnit.MB)

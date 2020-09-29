@@ -54,9 +54,23 @@ namespace Borlay.Rocks.Database
             return time.ToBytesByDescending();
         }
 
+        public static byte[] ToBytesByAscending(this DateTime date)
+        {
+            var time = date.ToFileTimeUtc();
+            return time.ToBytesByAscending();
+        }
+
         public static byte[] ToBytesByDescending(this long time)
         {
             var descTime = long.MaxValue - time;
+            var timeBytes = BitConverter.GetBytes(descTime);
+            var descTimeBytes = BitConverter.IsLittleEndian ? timeBytes.Reverse().ToArray() : timeBytes;
+            return descTimeBytes;
+        }
+
+        public static byte[] ToBytesByAscending(this long time)
+        {
+            var descTime = time;
             var timeBytes = BitConverter.GetBytes(descTime);
             var descTimeBytes = BitConverter.IsLittleEndian ? timeBytes.Reverse().ToArray() : timeBytes;
             return descTimeBytes;

@@ -4,8 +4,8 @@ using System.Text;
 
 namespace Borlay.Rocks
 {
-    public interface IRepository
+    public interface IPosition
     {
-       
+        long Position { get; set; }
     }
 }

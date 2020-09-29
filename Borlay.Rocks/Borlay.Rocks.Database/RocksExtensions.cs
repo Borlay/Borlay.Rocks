@@ -9,36 +9,112 @@ namespace Borlay.Rocks.Database
 {
     public static class RocksExtensions
     {
-        public static void Write<T>(this WriteBatch batch, Guid parentId, T record, ColumnFamilyHandle columnFamily) where T : ISortableRecord
-        {
-            var descTimeBytes = record.Position.ToBytesByDescending();
+        //public static void WriteIndex<T>(this WriteBatch batch, Guid parentId, T record, ColumnFamilyHandle columnFamily) where T : ISortableRecord
+        //{
+        //    var descTimeBytes = record.Position.ToBytesByDescending();
 
-            var recordKey = parentId.ToByteArray()
-                .Concat(descTimeBytes)
-                .Concat(record.Id.ToByteArray(8));
+        //    var recordKey = parentId.ToByteArray()
+        //        .Concat(descTimeBytes)
+        //        .Concat(record.Id.ToByteArray(8));
+
+        //    var json = Newtonsoft.Json.JsonConvert.SerializeObject(record, new Newtonsoft.Json.JsonSerializerSettings() { NullValueHandling = NullValueHandling.Ignore });
+        //    var bytes = Encoding.UTF8.GetBytes(json);
+
+        //    batch.Put(recordKey.Concat(0), record.Id.ToByteArray(), columnFamily);
+        //    batch.Put(recordKey.Concat(2), bytes, columnFamily);
+        //}
+
+        public static void Write(this WriteBatch batch, byte[] parentIndexBytes, byte[] valueIndexBytes, byte[] entityIndexBytes, long position, Order order, ColumnFamilyHandle columnFamily)
+        {
+            //var descTimeBytes = record.Position.ToBytesByDescending();
+
+            //var recordKey = parentId.ToByteArray()
+            //    .Concat(descTimeBytes)
+            //    .Concat(record.Id.ToByteArray(8));
+
+            var key = MakeIndex(parentIndexBytes, entityIndexBytes, position, order);
+
+            //var json = Newtonsoft.Json.JsonConvert.SerializeObject(record, new Newtonsoft.Json.JsonSerializerSettings() { NullValueHandling = NullValueHandling.Ignore });
+            //var bytes = Encoding.UTF8.GetBytes(json);
+
+            batch.Put(key.Concat(0), entityIndexBytes);//record.Id.ToByteArray(), columnFamily);
+            batch.Put(key.Concat(2), valueIndexBytes, columnFamily);
+        }
+
+        public static void Write<T>(this WriteBatch batch, byte[] parentIndexBytes, T record, byte[] indexBytes, long position, Order order, ColumnFamilyHandle columnFamily) where T : IEntity
+        {
+            //var descTimeBytes = record.Position.ToBytesByDescending();
+
+            //var recordKey = parentId.ToByteArray()
+            //    .Concat(descTimeBytes)
+            //    .Concat(record.Id.ToByteArray(8));
+
+            var key = MakeIndex(parentIndexBytes, indexBytes, position, order);
 
             var json = Newtonsoft.Json.JsonConvert.SerializeObject(record, new Newtonsoft.Json.JsonSerializerSettings() { NullValueHandling = NullValueHandling.Ignore });
             var bytes = Encoding.UTF8.GetBytes(json);
 
-            batch.Put(recordKey.Concat("id"), record.Id.ToByteArray(), columnFamily);
-            batch.Put(recordKey.Concat("value"), bytes, columnFamily);
+            batch.Put(key.Concat(0), record.GetEntityId().ToByteArray(), columnFamily);
+            batch.Put(key.Concat(1), bytes, columnFamily);
         }
 
-        public static IEnumerable<T> GetRecords<T>(this RocksDb db, Guid parentId, long position, ColumnFamilyHandle columnFamily, bool clean = true) where T : ISortableRecord
+        public static byte[] MakeIndex(this byte[] parentIndexBytes, byte[] entityIndexBytes, long position, Order order)
+        {
+            byte[] timeBytes = null;
+
+            if (order != Order.None)
+            {
+                if (position == 0)
+                    throw new ArgumentException($"Position cannot be 0 for sortable entity");
+
+                timeBytes = order == Order.Ascending ? position.ToBytesByAscending() : position.ToBytesByDescending();
+            }
+
+            return MakeIndex(parentIndexBytes, entityIndexBytes, timeBytes);
+        }
+
+        public static byte[] MakeIndex(this byte[] parentIndexBytes, byte[] entityIndexBytes, byte[] timeBytes)
+        {
+            if(entityIndexBytes?.Length > 0)
+            {
+                byte[] key = parentIndexBytes;
+
+                if(timeBytes?.Length > 0)
+                    key = key.Concat(timeBytes);
+
+                key = key.Concat(entityIndexBytes);
+                return key;
+            }
+            else
+            {
+                byte[] key = new byte[0];
+
+                if (timeBytes?.Length > 0)
+                    key = key.Concat(timeBytes);
+
+                key = key.Concat(parentIndexBytes);
+                return key;
+            }
+        }
+
+        public static IEnumerable<T> GetEntities<T>(this RocksDb db, byte[] parentIndexBytes, long position, ColumnFamilyHandle columnFamily, ColumnFamilyHandle valueColumnFamily, bool clean = true) where T : IEntity
         {
             var records = new Dictionary<Guid, T>();
             List<(Guid, byte[])> toRemove = new List<(Guid, byte[])>();
 
             try
             {
-                foreach (var recordJson in db.GetRecordsJson(parentId, position, columnFamily))
+                foreach (var recordJson in db.GetEntitiesBytes(parentIndexBytes, position, columnFamily, valueColumnFamily))
                 {
                     if (records.ContainsKey(recordJson.Item1))
-                        toRemove.Add((recordJson.Item1, parentId.ToKey(recordJson.Item1, recordJson.Item2)));
+                        toRemove.Add((recordJson.Item1, recordJson.Item2));
                     else
                     {
-                        var record = Newtonsoft.Json.JsonConvert.DeserializeObject<T>(recordJson.Item3);
-                        record.Position = recordJson.Item2;
+                        var json = Encoding.UTF8.GetString(recordJson.Item4);
+                        var record = Newtonsoft.Json.JsonConvert.DeserializeObject<T>(json);
+                        if(record is IPosition recPosition)
+                            recPosition.Position = recordJson.Item3;
+
                         records[recordJson.Item1] = record;
                         yield return record;
                     }
@@ -90,24 +166,23 @@ namespace Borlay.Rocks.Database
             return key;
         }
 
-        internal static IEnumerable<(Guid, long, string)> GetRecordsJson(this RocksDb db, Guid userId, long position, ColumnFamilyHandle columnFamily)
+        internal static IEnumerable<(Guid, byte[], long, byte[])> GetEntitiesBytes(this RocksDb db, byte[] parentIndexBytes, long position, ColumnFamilyHandle columnFamily, ColumnFamilyHandle valueColumnFamily)
         {
             var readOptions = new ReadOptions();
             readOptions.SetPrefixSameAsStart(true);
             readOptions.SetTotalOrderSeek(false);
             var iterator = db.NewIterator(columnFamily, readOptions);
 
-            var prefix = userId.ToByteArray();
             try
             {
-                iterator = iterator.Seek(prefix);
+                iterator = iterator.Seek(parentIndexBytes);
                 if (position != 0)
-                    iterator = iterator.Seek(prefix.Concat(position.ToBytesByDescending()));
+                    iterator = iterator.Seek(parentIndexBytes.Concat(position.ToBytesByDescending()));
 
                 while (iterator.Valid())
                 {
-                    var json = iterator.GetRecordJson(out var id, out position);
-                    yield return (id, position, json);
+                    var jsonBytes = iterator.GetEntityBytes(_key => db.Get(_key, valueColumnFamily), out var id, out var key, out position);
+                    yield return (id, key, position, jsonBytes);
                 }
             }
             finally
@@ -126,11 +201,12 @@ namespace Borlay.Rocks.Database
             return instance;
         }
 
-        public static string GetRecordJson(this Iterator iterator, out Guid id, out long position)
+        public static byte[] GetEntityBytes(this Iterator iterator, Func<byte[], byte[]> valueByKey, out Guid id, out byte[] key, out long position)
         {
-            string json = null;
+            byte[] json = null;
             id = Guid.NewGuid();
             position = 0;
+            key = null;
 
             byte[] lastKey = null;
             while (iterator.Valid())
@@ -154,14 +230,15 @@ namespace Borlay.Rocks.Database
                 if (position == 0)
                     position = descTimeBytes.ToLongByDescending();
 
-
-                switch (field)
+                switch (itKey[itKey.Length - 1])
                 {
-                    case "id": id = new Guid(iterator.Value()); break;
-                    case "value": json = iterator.StringValue(); break;
+                    case 0: id = new Guid(iterator.Value()); break;
+                    case 1: json = iterator.Value(); break;
+                    case 2: json = valueByKey(iterator.Value()); break;
                 }
 
-
+                Array.Resize(ref itKey, itKey.Length - 1);
+                key = itKey;
                 iterator = iterator.Next();
             }
 

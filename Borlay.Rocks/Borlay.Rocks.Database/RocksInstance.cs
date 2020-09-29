@@ -15,6 +15,8 @@ namespace Borlay.Rocks.Database
 
         public RocksDb Database { get; }
 
+        public IDictionary<string, Entity> Entities { get; }
+
         //public ColumnFamilyHandle userFamily { get; }
         //public ColumnFamilyHandle channelFamily { get; }
         //public ColumnFamilyHandle channelMessageFamily { get; }
@@ -22,18 +24,23 @@ namespace Borlay.Rocks.Database
 
         public IDictionary<string, ColumnFamilyHandle> Families { get; }
 
-        public RocksInstance(string directory, ulong walTtlInSeconds, int shardIndex, bool directIO, Recovery recovery, params (string, ColumnFamilyOptions)[] families)
+        public RocksInstance(string directory, ulong walTtlInSeconds, int shardIndex, bool directIO, Recovery recovery, IDictionary<string, Entity> entities)
         {
             var dataDirectory = directory.CreateDirectory("data");
             var walDirectory = directory.CreateDirectory("wal");
+
+            Entities = entities;
 
             //var tableOptions = new BlockBasedTableOptions().SetDefaultOptions();
             //var familyOptions = new ColumnFamilyOptions().SetDefaultOptions(tableOptions);
 
             var _families = new ColumnFamilies(null); //familyOptions);
 
-            foreach (var family in families)
-                _families.Add(family.Item1, family.Item2);
+            foreach (var family in Entities)
+            {
+                foreach(var index in family.Value.Indexes)
+                    _families.Add(index.Value.ColumnFamilyName, index.Value.ColumnFamily);
+            }
 
             //families.Add("users", familyOptions);
             //families.Add("channels", familyOptions);
@@ -55,7 +62,7 @@ namespace Borlay.Rocks.Database
             //channelMessageFamily = this.db.GetColumnFamily("channel-messages");
             //userChannelFamily = this.db.GetColumnFamily("user-channels");
 
-            Families = families.ToDictionary(f => f.Item1, f => this.Database.GetColumnFamily(f.Item1));
+            Families = Entities.SelectMany(e => e.Value.Indexes).ToDictionary(f => f.Value.ColumnFamilyName, f => this.Database.GetColumnFamily(f.Value.ColumnFamilyName));
 
             this.Index = shardIndex;
         }
@@ -70,10 +77,10 @@ namespace Borlay.Rocks.Database
         //    return new RocksInstance(Path.Combine(direcotry, $"{shardIndex}"), walTtlInSeconds, shardIndex);
         //}
 
-        public static RocksInstance Create(string direcotry, ulong walTtlInSeconds, int shardIndex, bool directIO, Recovery recovery, params (string, ColumnFamilyOptions)[] families)
-        {
-            return new RocksInstance(Path.Combine(direcotry, $"{shardIndex}"), walTtlInSeconds, shardIndex, directIO, recovery, families);
-        }
+        //public static RocksInstance Create(string direcotry, ulong walTtlInSeconds, int shardIndex, bool directIO, Recovery recovery, params (string, ColumnFamilyOptions)[] families)
+        //{
+        //    return new RocksInstance(Path.Combine(direcotry, $"{shardIndex}"), walTtlInSeconds, shardIndex, directIO, recovery, families);
+        //}
 
         //public static ColumnFamilyOptions Create(string columnFamily, bool sortedRecords, bool cacheAllIndexes = false, bool ssdDisc = true, ulong baseSizeInMB = 256)
         //{
