@@ -41,8 +41,6 @@ namespace Borlay.Rocks.Tests
 
             using (var transaction = await repository.WaitTransactionAsync(parentId))
             {
-                //transaction.Batch.wr
-
                 transaction.SaveEntity(parentId, entity1);
                 transaction.NextPosition();
                 transaction.SaveEntity(parentId, entity2);
