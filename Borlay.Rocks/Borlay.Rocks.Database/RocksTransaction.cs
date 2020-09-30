@@ -120,6 +120,21 @@ namespace Borlay.Rocks.Database
             return false;
         }
 
+        public bool TryGetEntity<T>(Guid parentId, T entity, out T existingEntity)
+        {
+            return TryGetEntity<T>(parentId.ToByteArray(), entity, 0, Order.None, out existingEntity);
+        }
+
+        public bool TryGetEntity<T>(Guid parentId, T entity, long position, Order order, out T existingEntity)
+        {
+            return TryGetEntity<T>(parentId.ToByteArray(), entity, position, order, out existingEntity);
+        }
+
+        public bool TryGetEntity<T>(byte[] parentIndexBytes, T entity, out T existingEntity)
+        {
+            return TryGetEntity<T>(parentIndexBytes, entity, 0, Order.None, out existingEntity);
+        }
+
         public bool TryGetEntity<T>(byte[] parentIndexBytes, T entity, long position, Order order, out T existingEntity)
         {
             if (!Instance.Entities.TryGetValue(typeof(T).Name, out var entityInfo))
@@ -127,11 +142,15 @@ namespace Borlay.Rocks.Database
 
             existingEntity = default(T);
 
+            var valueColumnFamily = Instance.Families[entityInfo.ValueIndex.ColumnFamilyName];
+
+
             foreach (var indexKeyPair in entityInfo.Indexes)
             {
                 var index = indexKeyPair.Value;
                 var eIndexBytes = index.GetIndex(entity);
                 var columnFamily = Instance.Families[index.ColumnFamilyName];
+                
 
                 if (index.Order == order && index.MatchEntity(entity))
                 {
@@ -144,7 +163,7 @@ namespace Borlay.Rocks.Database
                     else
                     {
                         var valueIndexBytes = Instance.Database.Get(indexBytes.Concat(2), columnFamily);
-                        entityBytes = Instance.Database.Get(valueIndexBytes.Concat(1), columnFamily);
+                        entityBytes = Instance.Database.Get(valueIndexBytes.Concat(1), valueColumnFamily);
                     }
 
                     if(entityBytes?.Length > 0)
