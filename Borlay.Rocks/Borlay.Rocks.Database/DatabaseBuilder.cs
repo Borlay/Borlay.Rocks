@@ -202,6 +202,11 @@ namespace Borlay.Rocks.Database
             this.matchEntity = matchEntity;
         }
 
+        public void SetMatch(Func<T, bool> matchEntity)
+        {
+            this.matchEntity = matchEntity;
+        }
+
         public override byte[] MakeKey(byte[] parentIndexBytes, object obj)
         {
             var entity = (T)obj;

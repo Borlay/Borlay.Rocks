@@ -9,19 +9,21 @@ namespace Borlay.Rocks.Database
 {
     public static class RocksExtensions
     {
-        public static void Write(this WriteBatch batch, byte[] key, Guid recordId, byte[] valueIndexBytes, ColumnFamilyHandle columnFamily)
+        public static void Write(this WriteBatch batch, byte[] key, Guid recordId, long position, byte[] valueIndexBytes, ColumnFamilyHandle columnFamily)
         {
             batch.Put(key.Concat(0), recordId.ToByteArray(), columnFamily);
             batch.Put(key.Concat(2), valueIndexBytes, columnFamily);
+            batch.Put(key.Concat(3), position.ToBytesByAscending(), columnFamily);
         }
 
-        public static void Write<T>(this WriteBatch batch, byte[] key, T record,  ColumnFamilyHandle columnFamily) where T : IEntity
+        public static void Write<T>(this WriteBatch batch, byte[] key, T record, long position,  ColumnFamilyHandle columnFamily) where T : IEntity
         {
             var json = Newtonsoft.Json.JsonConvert.SerializeObject(record, new Newtonsoft.Json.JsonSerializerSettings() { NullValueHandling = NullValueHandling.Ignore });
             var bytes = Encoding.UTF8.GetBytes(json);
 
             batch.Put(key.Concat(0), record.GetEntityId().ToByteArray(), columnFamily);
             batch.Put(key.Concat(1), bytes, columnFamily);
+            batch.Put(key.Concat(3), position.ToBytesByAscending(), columnFamily);
         }
 
         public static IEnumerable<T> GetEntities<T>(this RocksDb db, byte[] parentIndexBytes, long position, ColumnFamilyHandle columnFamily, ColumnFamilyHandle valueColumnFamily, bool autoRemove = true) where T : IEntity
@@ -159,28 +161,20 @@ namespace Borlay.Rocks.Database
             {
                 var itKey = iterator.Key();
 
-                var fieldKey = new byte[itKey.Length - 32];
-                var field = Encoding.UTF8.GetString(itKey, 32, itKey.Length - 32);
-
                 var baseKey = new byte[16];
                 Array.Copy(itKey, 16, baseKey, 0, baseKey.Length);
-
-                var descTimeBytes = new byte[8];
-                Array.Copy(itKey, 16, descTimeBytes, 0, descTimeBytes.Length);
 
                 if (lastKey == null)
                     lastKey = baseKey;
                 else if (!lastKey.StartsWith(baseKey))
                     return json;
 
-                if (position == 0)
-                    position = descTimeBytes.ToLongByDescending();
-
                 switch (itKey[itKey.Length - 1])
                 {
                     case 0: id = new Guid(iterator.Value()); break;
                     case 1: json = iterator.Value(); break;
                     case 2: json = valueByKey(iterator.Value()); break;
+                    case 3: position = iterator.Value().ToLong(); break;
                 }
 
                 Array.Resize(ref itKey, itKey.Length - 1);
