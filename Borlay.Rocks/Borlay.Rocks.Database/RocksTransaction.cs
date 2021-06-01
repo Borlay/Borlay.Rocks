@@ -12,12 +12,11 @@ namespace Borlay.Rocks.Database
 
         public RocksInstance Instance { get; }
 
-        public WriteBatch Batch { get; }
+        public WriteBatch Batch { get; private set; }
 
         public long Position { get; protected set; }
 
         public int ShardIndex { get; protected set; }
-
         public RocksTransaction(RocksInstance instance, int shardIndex, Action dispose)
         {
             this.dispose = dispose;
@@ -184,7 +183,6 @@ namespace Borlay.Rocks.Database
             return GetEntities<T>(parentIndexBytes, 0, order);
         }
 
-
         public IEnumerable<T> GetEntities<T>(byte[] parentIndexBytes, long position, Order order) where T : IEntity
         {
             if (!Instance.Entities.TryGetValue(typeof(T).Name, out var entityInfo))
@@ -214,8 +212,6 @@ namespace Borlay.Rocks.Database
 
             if (entityInfo.ValueIndex == null)
                 throw new Exception($"Entity should contain value index.");
-
-            var valueColumnFamily = Instance.Families[entityInfo.ValueIndex.ColumnFamilyName];
 
             foreach (var indexKeyPair in entityInfo.Indexes)
             {
@@ -264,15 +260,11 @@ namespace Borlay.Rocks.Database
             return Enumerable.Empty<T>();
         }
 
-
-        private bool commited = false;
         public virtual void Commit()
         {
-            if (commited)
-                throw new ObjectDisposedException("Transaction cannot be committed twice");
-
-            commited = true;
             Instance.Database.Write(Batch);
+            Batch.Dispose();
+            Batch = new WriteBatch();
         }
 
         public virtual void Dispose()
@@ -280,6 +272,10 @@ namespace Borlay.Rocks.Database
             try
             {
                 Batch.Dispose();
+            }
+            catch(Exception e)
+            {
+                Console.WriteLine(e.ToString());
             }
             finally
             {

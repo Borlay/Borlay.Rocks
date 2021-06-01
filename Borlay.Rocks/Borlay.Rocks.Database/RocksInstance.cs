@@ -17,11 +17,6 @@ namespace Borlay.Rocks.Database
 
         public IDictionary<string, Entity> Entities { get; }
 
-        //public ColumnFamilyHandle userFamily { get; }
-        //public ColumnFamilyHandle channelFamily { get; }
-        //public ColumnFamilyHandle channelMessageFamily { get; }
-        //public ColumnFamilyHandle userChannelFamily { get; }
-
         public IDictionary<string, ColumnFamilyHandle> Families { get; }
 
         public RocksInstance(string directory, ulong walTtlInSeconds, int shardIndex, bool directIO, Recovery recovery, IDictionary<string, Entity> entities)
@@ -31,22 +26,13 @@ namespace Borlay.Rocks.Database
 
             Entities = entities;
 
-            //var tableOptions = new BlockBasedTableOptions().SetDefaultOptions();
-            //var familyOptions = new ColumnFamilyOptions().SetDefaultOptions(tableOptions);
-
-            var _families = new ColumnFamilies(null); //familyOptions);
+            var _families = new ColumnFamilies(null);
 
             foreach (var family in Entities)
             {
                 foreach(var index in family.Value.Indexes)
                     _families.Add(index.Value.ColumnFamilyName, index.Value.ColumnFamily);
             }
-
-            //families.Add("users", familyOptions);
-            //families.Add("channels", familyOptions);
-            //families.Add("channel-messages", familyOptions);
-            //families.Add("user-channels", familyOptions);
-
 
             var dbOptions = new DbOptions().SetDefaultOptions(true, directIO);
             dbOptions = dbOptions
@@ -55,12 +41,6 @@ namespace Borlay.Rocks.Database
                 .SetWALTtlSeconds(walTtlInSeconds);
 
             this.Database = RocksDb.Open(dbOptions, dataDirectory, _families);
-
-
-            //userFamily = this.db.GetColumnFamily("users");
-            //channelFamily = this.db.GetColumnFamily("channels");
-            //channelMessageFamily = this.db.GetColumnFamily("channel-messages");
-            //userChannelFamily = this.db.GetColumnFamily("user-channels");
 
             Families = Entities.SelectMany(e => e.Value.Indexes).ToDictionary(f => f.Value.ColumnFamilyName, f => this.Database.GetColumnFamily(f.Value.ColumnFamilyName));
 
