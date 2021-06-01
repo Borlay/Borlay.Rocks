@@ -29,10 +29,21 @@ namespace Borlay.Rocks.Database
             this.ssdDisc = ssdDisc;
         }
 
+        public DatabaseBuilder Entity<T>(Order order, out EntityIndex<T> index, bool cacheAllIndexes = false, int parentIdLength = 16) where T: IEntity
+        {
+            HasIndex<T>("Primary", (e) => e.GetEntityId().ToByteArray(), order, true, out index, cacheAllIndexes, parentIdLength);
+            return this;
+        }
+
         public DatabaseBuilder Entity<T>(Func<T, byte[]> getIndex, Order order, out EntityIndex<T> index, bool cacheAllIndexes = false, int parentIdLength = 16)
         {
             HasIndex<T>("Primary", getIndex, order, true, out index, cacheAllIndexes, parentIdLength);
             return this;
+        }
+
+        public DatabaseBuilder HasIndex<T>(string name, Order order, bool hasValue, out EntityIndex<T> index, bool cacheAllIndexes = false, int parentIdLength = 16) where T : IEntity
+        {
+            return HasIndex<T>(name, (e) => e.GetEntityId().ToByteArray(), order, hasValue, out index, cacheAllIndexes, parentIdLength);
         }
 
         public DatabaseBuilder HasIndex<T>(string name, Func<T, byte[]> getIndex, Order order, bool hasValue, out EntityIndex<T> index, bool cacheAllIndexes = false, int parentIdLength = 16)
