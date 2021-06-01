@@ -46,9 +46,44 @@ namespace Borlay.Rocks.Database
 
         public virtual async Task<RocksTransaction> WaitTransactionAsync(Guid shardKey)
         {
-            var instance = instances.GetInstance(shardKey, out var shardIndex);
             var disposeAction = await AsyncLock.WaitAsync(shardKey);
-            return new RocksTransaction(instance, disposeAction.Dispose);
+
+            try
+            {
+                var instance = instances.GetInstance(shardKey, out var shardIndex);
+                return new RocksTransaction(instance, shardIndex, disposeAction.Dispose);
+            }
+            catch
+            {
+                disposeAction.Dispose();
+                throw;
+            }
+        }
+
+        public virtual async Task<RocksTransactionCollection> WaitTransactionsAsync(params Guid[] shardKeys)
+        {
+            var disposeAction = await AsyncLock.WaitAsync(shardKeys);
+            try
+            {
+                Dictionary<int, RocksTransaction> sharedTransactions = new Dictionary<int, RocksTransaction>();
+                var transactions = shardKeys.ToDictionary(k => k, k =>
+                {
+                    var instance = instances.GetInstance(k, out var shardIndex);
+                    if (sharedTransactions.TryGetValue(shardIndex, out var transaction))
+                        return transaction;
+
+                    transaction = new RocksTransaction(instance, shardIndex, null);
+                    sharedTransactions[shardIndex] = transaction;
+                    return transaction;
+                });
+
+                return new RocksTransactionCollection(transactions, disposeAction);
+            }
+            catch
+            {
+                disposeAction.Dispose();
+                throw;
+            }
         }
 
         ///// <summary>
@@ -111,6 +146,6 @@ namespace Borlay.Rocks.Database
         //    }
         //}
 
-        
+
     }
 }

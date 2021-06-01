@@ -16,18 +16,26 @@ namespace Borlay.Rocks.Database
 
         public long Position { get; protected set; }
 
-        public RocksTransaction(RocksInstance instance, Action dispose)
+        public int ShardIndex { get; protected set; }
+
+        public RocksTransaction(RocksInstance instance, int shardIndex, Action dispose)
         {
             this.dispose = dispose;
             this.Instance = instance ?? throw new ArgumentNullException(nameof(instance));
 
             Batch = new WriteBatch();
             this.Position = DateTime.Now.ToFileTimeUtc();
+            this.ShardIndex = shardIndex;
         }
 
         public void NextPosition()
         {
             Position++;
+        }
+
+        public void SetPosition(int position)
+        {
+            this.Position = position;
         }
 
         public void SaveEntity<T>(Guid parentId, T entity) where T : IEntity
@@ -45,74 +53,55 @@ namespace Borlay.Rocks.Database
             if (valueIndex == null)
                 throw new Exception($"Entity should contain value index.");
 
-            var position = Position;
 
-            if (entity is IPosition entityPosition)
-            {
-                if (entityPosition.Position > 0)
-                    position = entityPosition.Position;
-                else
-                    entityPosition.Position = position;
-            }
+            if(entity is IPosition position && position.Position <= 0)
+                position.Position = Position;
 
-            var entityIndexBytes = valueIndex.GetIndex(entity);
-            var valueIndexBytes = parentIndexBytes.MakeIndex(entityIndexBytes, position, valueIndex.Order);
+            var valueKey = valueIndex.MakeKey(parentIndexBytes, entity);
 
             foreach (var index in entityInfo.Indexes)
             {
-                var eIndexBytes = index.Value.GetIndex(entity);
+                var key = index.Value.MakeKey(parentIndexBytes, entity);
                 var columnFamily = Instance.Families[index.Value.ColumnFamilyName];
 
                 if (!index.Value.MatchEntity(entity))
                     continue;
 
                 if (index.Value.HasValue)
-                    Batch.Write<T>(parentIndexBytes, entity, eIndexBytes, position, index.Value.Order, columnFamily);
+                    Batch.Write<T>(key, entity, columnFamily);
                 else
-                    Batch.Write(parentIndexBytes, valueIndexBytes, eIndexBytes, position, index.Value.Order, columnFamily);
+                    Batch.Write(key, entity.GetEntityId(), valueKey, columnFamily);
             }
         }
 
         public bool ContainsEntity<T>(Guid parentId, T entity)
         {
-            return ContainsEntity<T>(parentId.ToByteArray(), entity, 0, Order.None);
+            return ContainsEntity<T>(parentId.ToByteArray(), entity, Order.None);
         }
 
         public bool ContainsEntity<T>(byte[] parentIndexBytes, T entity)
         {
-            return ContainsEntity<T>(parentIndexBytes, entity, 0, Order.None);
+            return ContainsEntity<T>(parentIndexBytes, entity, Order.None);
         }
 
-        public bool ContainsEntity<T>(Guid parentId, T entity, long position, Order order)
+        public bool ContainsEntity<T>(Guid parentId, T entity, Order order)
         {
-            return ContainsEntity<T>(parentId.ToByteArray(), entity, position, order);
+            return ContainsEntity<T>(parentId.ToByteArray(), entity, order);
         }
 
-        public bool ContainsEntity<T>(Guid parentId, T entity, DateTime position, Order order)
-        {
-            return ContainsEntity<T>(parentId.ToByteArray(), entity, position.ToFileTimeUtc(), order);
-        }
-
-        public bool ContainsEntity<T>(byte[] parentIndexBytes, T entity, DateTime position, Order order)
-        {
-            return ContainsEntity<T>(parentIndexBytes, entity, position.ToFileTimeUtc(), order);
-        }
-
-        public bool ContainsEntity<T>(byte[] parentIndexBytes, T entity, long position, Order order)
+        public bool ContainsEntity<T>(byte[] parentIndexBytes, T entity, Order order)
         {
             if (!Instance.Entities.TryGetValue(typeof(T).Name, out var entityInfo))
                 throw new ArgumentException($"Entity for type '{typeof(T).Name}' is not configured.");
 
             foreach (var index in entityInfo.Indexes)
             {
-                var eIndexBytes = index.Value.GetIndex(entity);
-                var columnFamily = Instance.Families[index.Value.ColumnFamilyName];
-
                 if (index.Value.Order == order && index.Value.MatchEntity(entity))
                 {
-                    var indexBytes = parentIndexBytes.MakeIndex(eIndexBytes, position, order);
+                    var columnFamily = Instance.Families[index.Value.ColumnFamilyName];
+                    var key = index.Value.MakeKey(parentIndexBytes, entity);
 
-                    var enitityBytes = Instance.Database.Get(indexBytes.Concat(0), columnFamily);
+                    var enitityBytes = Instance.Database.Get(key.Concat(0), columnFamily);
                     return enitityBytes?.Length > 0;
                 }
             }
@@ -122,20 +111,20 @@ namespace Borlay.Rocks.Database
 
         public bool TryGetEntity<T>(Guid parentId, T entity, out T existingEntity)
         {
-            return TryGetEntity<T>(parentId.ToByteArray(), entity, 0, Order.None, out existingEntity);
+            return TryGetEntity<T>(parentId.ToByteArray(), entity, Order.None, out existingEntity);
         }
 
-        public bool TryGetEntity<T>(Guid parentId, T entity, long position, Order order, out T existingEntity)
+        public bool TryGetEntity<T>(Guid parentId, T entity, Order order, out T existingEntity)
         {
-            return TryGetEntity<T>(parentId.ToByteArray(), entity, position, order, out existingEntity);
+            return TryGetEntity<T>(parentId.ToByteArray(), entity, order, out existingEntity);
         }
 
         public bool TryGetEntity<T>(byte[] parentIndexBytes, T entity, out T existingEntity)
         {
-            return TryGetEntity<T>(parentIndexBytes, entity, 0, Order.None, out existingEntity);
+            return TryGetEntity<T>(parentIndexBytes, entity, Order.None, out existingEntity);
         }
 
-        public bool TryGetEntity<T>(byte[] parentIndexBytes, T entity, long position, Order order, out T existingEntity)
+        public bool TryGetEntity<T>(byte[] parentIndexBytes, T entity, Order order, out T existingEntity)
         {
             if (!Instance.Entities.TryGetValue(typeof(T).Name, out var entityInfo))
                 throw new ArgumentException($"Entity for type '{typeof(T).Name}' is not configured.");
@@ -144,25 +133,20 @@ namespace Borlay.Rocks.Database
 
             var valueColumnFamily = Instance.Families[entityInfo.ValueIndex.ColumnFamilyName];
 
-
-            foreach (var indexKeyPair in entityInfo.Indexes)
+            foreach (var index in entityInfo.Indexes)
             {
-                var index = indexKeyPair.Value;
-                var eIndexBytes = index.GetIndex(entity);
-                var columnFamily = Instance.Families[index.ColumnFamilyName];
-                
-
-                if (index.Order == order && index.MatchEntity(entity))
+                if (index.Value.Order == order && index.Value.MatchEntity(entity))
                 {
-                    var indexBytes = parentIndexBytes.MakeIndex(eIndexBytes, position, order);
+                    var columnFamily = Instance.Families[index.Value.ColumnFamilyName];
+                    var key = index.Value.MakeKey(parentIndexBytes, entity);
 
                     byte[] entityBytes = null;
 
-                    if (index.HasValue)
-                        entityBytes = Instance.Database.Get(indexBytes.Concat(1), columnFamily);
+                    if (index.Value.HasValue)
+                        entityBytes = Instance.Database.Get(key.Concat(1), columnFamily);
                     else
                     {
-                        var valueIndexBytes = Instance.Database.Get(indexBytes.Concat(2), columnFamily);
+                        var valueIndexBytes = Instance.Database.Get(key.Concat(2), columnFamily);
                         entityBytes = Instance.Database.Get(valueIndexBytes.Concat(1), valueColumnFamily);
                     }
 
@@ -217,10 +201,30 @@ namespace Borlay.Rocks.Database
                 var columnFamily = Instance.Families[index.ColumnFamilyName];
 
                 if (index.Order == order && !index.HasMatch)
-                    return Instance.Database.GetEntities<T>(parentIndexBytes, position, columnFamily, valueColumnFamily);
+                    return Instance.Database.GetEntities<T>(parentIndexBytes, position, columnFamily, valueColumnFamily, index.AutoRemove);
             }
 
             return Enumerable.Empty<T>();
+        }
+
+        public void DeleteEntities<T>(byte[] parentIndexBytes, long position, Order order) where T : IEntity
+        {
+            if (!Instance.Entities.TryGetValue(typeof(T).Name, out var entityInfo))
+                throw new ArgumentException($"Entity for type '{typeof(T).Name}' is not configured.");
+
+            if (entityInfo.ValueIndex == null)
+                throw new Exception($"Entity should contain value index.");
+
+            var valueColumnFamily = Instance.Families[entityInfo.ValueIndex.ColumnFamilyName];
+
+            foreach (var indexKeyPair in entityInfo.Indexes)
+            {
+                var index = indexKeyPair.Value;
+                var columnFamily = Instance.Families[index.ColumnFamilyName];
+
+                if (index.Order == order && !index.HasMatch)
+                    Instance.Database.DeleteEntities(parentIndexBytes, position, columnFamily);
+            }
         }
 
         public IEnumerable<T> GetEntities<T, TEnum>(TEnum _enum, Guid parentId, DateTime position, Order order) where T : IEntity where TEnum : Enum
