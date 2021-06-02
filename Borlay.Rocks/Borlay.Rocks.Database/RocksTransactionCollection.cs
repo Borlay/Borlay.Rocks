@@ -18,6 +18,15 @@ namespace Borlay.Rocks.Database
 
         public RocksTransaction this[Guid parentId] => Transactions[parentId];
 
+        public void Commit(params Guid[] parentIds)
+        {
+            if (parentIds.Length == 0)
+                throw new ArgumentException($"Cannot commit transactions because parent ids array is empty.");
+
+            foreach (var parentId in parentIds)
+                Transactions[parentId].Commit();
+        }
+
         public void Dispose()
         {
             foreach (var transaction in Transactions)
