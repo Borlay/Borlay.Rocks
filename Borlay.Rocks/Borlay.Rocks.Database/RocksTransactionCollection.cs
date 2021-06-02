@@ -16,7 +16,7 @@ namespace Borlay.Rocks.Database
             this.Transactions = transactions ?? throw new ArgumentNullException(nameof(transactions));
         }
 
-        public RocksTransaction this[Guid shardKey] => Transactions[shardKey];
+        public RocksTransaction this[Guid parentId] => Transactions[parentId];
 
         public void Dispose()
         {

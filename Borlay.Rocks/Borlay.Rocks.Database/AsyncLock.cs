@@ -19,29 +19,7 @@ namespace Borlay.Rocks.Database
         public static Task<IDisposable> WaitAsync(params Guid[] guids) => WaitAsync(guids.Select(g => g.GetHashCode()).ToArray());
         public static Task<IDisposable> WaitAsync(params string[] ids) => WaitAsync(ids.Select(id => id.GetHashCode()).ToArray());
 
-        //private static SemaphoreSlim GetLock(this string key) => 
-        //{
-        //    var code = Math.Abs(key.GetHashCode()) % locks.Count();
-        //    var slim = locks[code];
-        //    return slim;
-        //}
-
-        
-
-        //private static SemaphoreSlim GetLock(this int hashCode)
-        //{
-        //    var slim = locks[GetIndex(hashCode)];
-        //    return slim;
-        //}
-
         private static int GetIndex(int hashCode) => Math.Abs(hashCode) % locks.Count();
-
-        //public static async Task<IDisposable> WaitAsync(this int hashCode)
-        //{
-        //    var slim = GetLock(hashCode);
-        //    await slim.WaitAsync();
-        //    return new DisposeAction(() => slim.Release());
-        //}
 
         public static async Task<IDisposable> WaitAsync(params int[] hashCodes)
         {

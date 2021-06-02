@@ -32,19 +32,19 @@ namespace Borlay.Rocks.Database
             return instances[shardIndex];
         }
 
-        public virtual RocksInstance GetInstance(Guid shardKey, out int shardIndex)
+        public virtual RocksInstance GetInstance(Guid parentId, out int shardIndex)
         {
-            return instances.GetInstance(shardKey, out shardIndex);
+            return instances.GetInstance(parentId, out shardIndex);
         }
 
-        public virtual async Task<RocksTransaction> WaitTransactionAsync(Guid shardKey)
+        public virtual async Task<RocksTransaction> WaitTransactionAsync(Guid parentId)
         {
-            var disposeAction = await AsyncLock.WaitAsync(shardKey);
+            var disposeAction = await AsyncLock.WaitAsync(parentId);
 
             try
             {
-                var instance = instances.GetInstance(shardKey, out var shardIndex);
-                return new RocksTransaction(instance, shardIndex, disposeAction.Dispose);
+                var instance = instances.GetInstance(parentId, out var shardIndex);
+                return new RocksTransaction(instance, parentId, shardIndex, disposeAction.Dispose);
             }
             catch
             {
@@ -53,20 +53,15 @@ namespace Borlay.Rocks.Database
             }
         }
 
-        public virtual async Task<RocksTransactionCollection> WaitTransactionsAsync(params Guid[] shardKeys)
+        public virtual async Task<RocksTransactionCollection> WaitTransactionsAsync(params Guid[] parentIds)
         {
-            var disposeAction = await AsyncLock.WaitAsync(shardKeys);
+            var disposeAction = await AsyncLock.WaitAsync(parentIds);
             try
             {
-                Dictionary<int, RocksTransaction> sharedTransactions = new Dictionary<int, RocksTransaction>();
-                var transactions = shardKeys.ToDictionary(k => k, k =>
+                var transactions = parentIds.ToDictionary(k => k, k =>
                 {
                     var instance = instances.GetInstance(k, out var shardIndex);
-                    if (sharedTransactions.TryGetValue(shardIndex, out var transaction))
-                        return transaction;
-
-                    transaction = new RocksTransaction(instance, shardIndex, null);
-                    sharedTransactions[shardIndex] = transaction;
+                    var transaction = new RocksTransaction(instance, k, shardIndex, null);
                     return transaction;
                 });
 

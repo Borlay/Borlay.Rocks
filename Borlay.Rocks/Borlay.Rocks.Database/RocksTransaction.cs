@@ -17,7 +17,18 @@ namespace Borlay.Rocks.Database
         public long Position { get; protected set; }
 
         public int ShardIndex { get; protected set; }
-        public RocksTransaction(RocksInstance instance, int shardIndex, Action dispose)
+
+        private readonly byte[] parentIndexBytes;
+
+        public Guid ParentId { get; }
+
+        public RocksTransaction(RocksInstance instance, Guid parentId, int shardIndex, Action dispose)
+            : this(instance, parentId.ToByteArray(), shardIndex, dispose) 
+        {
+            this.ParentId = parentId;
+        }
+
+        private RocksTransaction(RocksInstance instance, byte[] parentIndexBytes, int shardIndex, Action dispose)
         {
             this.dispose = dispose;
             this.Instance = instance ?? throw new ArgumentNullException(nameof(instance));
@@ -25,6 +36,7 @@ namespace Borlay.Rocks.Database
             Batch = new WriteBatch();
             this.Position = DateTime.Now.ToFileTimeUtc();
             this.ShardIndex = shardIndex;
+            this.parentIndexBytes = parentIndexBytes ?? throw new ArgumentNullException(nameof(parentIndexBytes));
         }
 
         public void NextPosition()
@@ -37,12 +49,7 @@ namespace Borlay.Rocks.Database
             this.Position = position;
         }
 
-        public void SaveEntity<T>(Guid parentId, T entity) where T : IEntity
-        {
-            SaveEntity<T>(parentId.ToByteArray(), entity);
-        }
-
-        public void SaveEntity<T>(byte[] parentIndexBytes, T entity) where T: IEntity
+        public void SaveEntity<T>(T entity) where T: IEntity
         {
             if (!Instance.Entities.TryGetValue(typeof(T).Name, out var entityInfo))
                 throw new ArgumentException($"Entity for type '{typeof(T).Name}' is not configured.");
@@ -79,25 +86,25 @@ namespace Borlay.Rocks.Database
             }
         }
 
-        public bool ContainsEntity<T>(Guid parentId, T entity)
+        public bool ContainsEntity<T>(T entity)
         {
-            return ContainsEntity<T>(parentId.ToByteArray(), entity, Order.None);
+            return ContainsEntityAs<T, T>(entity, Order.None);
         }
 
-        public bool ContainsEntity<T>(byte[] parentIndexBytes, T entity)
+        public bool ContainsEntity<T>(T entity, Order order)
         {
-            return ContainsEntity<T>(parentIndexBytes, entity, Order.None);
+            return ContainsEntityAs<T, T>(entity, order);
         }
 
-        public bool ContainsEntity<T>(Guid parentId, T entity, Order order)
+        public bool ContainsEntityAs<T, TRepository>(T entity)
         {
-            return ContainsEntity<T>(parentId.ToByteArray(), entity, order);
+            return ContainsEntityAs<T, TRepository>(entity, Order.None);
         }
 
-        public bool ContainsEntity<T>(byte[] parentIndexBytes, T entity, Order order)
+        public bool ContainsEntityAs<T, TRepository>(T entity, Order order)
         {
-            if (!Instance.Entities.TryGetValue(typeof(T).Name, out var entityInfo))
-                throw new ArgumentException($"Entity for type '{typeof(T).Name}' is not configured.");
+            if (!Instance.Entities.TryGetValue(typeof(TRepository).Name, out var entityInfo))
+                throw new ArgumentException($"Entity for type '{typeof(TRepository).Name}' is not configured.");
 
             foreach (var index in entityInfo.Indexes)
             {
@@ -114,47 +121,27 @@ namespace Borlay.Rocks.Database
             return false;
         }
 
-        public bool TryGetEntity<T>(Guid parentId, T entity, out T existingEntity)
+        public bool TryGetEntity<T>(T entity, out T existingEntity)
         {
-            return TryGetEntity<T>(parentId.ToByteArray(), entity, Order.None, out existingEntity);
+            return TryGetEntityAs<T, T>(entity, Order.None, out existingEntity);
         }
 
-        public bool TryGetEntity<T>(Guid parentId, T entity, Order order, out T existingEntity)
+        public bool TryGetEntity<T>(T entity, Order order, out T existingEntity)
         {
-            return TryGetEntity<T>(parentId.ToByteArray(), entity, order, out existingEntity);
+            return TryGetEntityAs<T, T>(entity, order, out existingEntity);
         }
 
-        public bool TryGetEntity<T>(byte[] parentIndexBytes, T entity, out T existingEntity)
+        public bool TryGetEntityAs<T, TRepository>(T entity, out T existingEntity)
         {
-            return TryGetEntity<T>(parentIndexBytes, entity, Order.None, out existingEntity);
+            return TryGetEntityAs<T, TRepository>(entity, Order.None, out existingEntity);
         }
 
-        public bool TryGetEntity<T>(byte[] parentIndexBytes, T entity, Order order, out T existingEntity)
+        public bool TryGetEntityAs<T, TRepository>(T entity, Order order, out T existingEntity)
         {
-            return TryGetEntityAs<T, T>(parentIndexBytes, entity, order, out existingEntity);
-        }
+            if (!Instance.Entities.TryGetValue(typeof(TRepository).Name, out var entityInfo))
+                throw new ArgumentException($"Entity for type '{typeof(TRepository).Name}' is not configured.");
 
-        public bool TryGetEntityAs<T, TResult>(Guid parentId, T entity, out TResult existingEntity)
-        {
-            return TryGetEntityAs<T, TResult>(parentId.ToByteArray(), entity, Order.None, out existingEntity);
-        }
-
-        public bool TryGetEntityAs<T, TResult>(Guid parentId, T entity, Order order, out TResult existingEntity)
-        {
-            return TryGetEntityAs<T, TResult>(parentId.ToByteArray(), entity, order, out existingEntity);
-        }
-
-        public bool TryGetEntityAs<T, TResult>(byte[] parentIndexBytes, T entity, out TResult existingEntity)
-        {
-            return TryGetEntityAs<T, TResult>(parentIndexBytes, entity, Order.None, out existingEntity);
-        }
-
-        public bool TryGetEntityAs<T, TResult>(byte[] parentIndexBytes, T entity, Order order, out TResult existingEntity)
-        {
-            if (!Instance.Entities.TryGetValue(typeof(T).Name, out var entityInfo))
-                throw new ArgumentException($"Entity for type '{typeof(T).Name}' is not configured.");
-
-            existingEntity = default(TResult);
+            existingEntity = default(T);
 
             var valueColumnFamily = Instance.Families[entityInfo.ValueIndex.ColumnFamilyName];
 
@@ -180,7 +167,7 @@ namespace Borlay.Rocks.Database
                     if(entityBytes?.Length > 0)
                     {
                         var json = Encoding.UTF8.GetString(entityBytes);
-                        existingEntity = Newtonsoft.Json.JsonConvert.DeserializeObject<TResult>(json);
+                        existingEntity = Newtonsoft.Json.JsonConvert.DeserializeObject<T>(json);
                         return true;
                     }
 
@@ -191,55 +178,35 @@ namespace Borlay.Rocks.Database
             return false;
         }
 
-        public IEnumerable<T> GetEntities<T>(Guid parentId, DateTime position, Order order, string indexNamePrefix = null) where T : IEntity
+        public IEnumerable<T> GetEntities<T>(DateTime position, Order order, string indexNamePrefix = null) where T : IEntity
         {
-            return GetEntities<T>(parentId.ToByteArray(), position.ToFileTimeUtc(), order, indexNamePrefix);
+            return GetEntitiesAs<T, T>(position.ToFileTimeUtc(), order, indexNamePrefix);
         }
 
-        public IEnumerable<T> GetEntities<T>(Guid parentId, long position, Order order, string indexNamePrefix = null) where T : IEntity
+        public IEnumerable<T> GetEntities<T>(long position, Order order, string indexNamePrefix = null) where T : IEntity
         {
-            return GetEntities<T>(parentId.ToByteArray(), position, order, indexNamePrefix);
+            return GetEntitiesAs<T, T>(position, order, indexNamePrefix);
         }
 
-        public IEnumerable<T> GetEntities<T>(Guid parentId, Order order, string indexNamePrefix = null) where T : IEntity
+        public IEnumerable<T> GetEntities<T>(Order order, string indexNamePrefix = null) where T : IEntity
         {
-            return GetEntities<T>(parentId.ToByteArray(), 0, order, indexNamePrefix);
+            return GetEntitiesAs<T, T>(0, order, indexNamePrefix);
         }
 
-        public IEnumerable<T> GetEntities<T>(byte[] parentIndexBytes, Order order, string indexNamePrefix = null) where T : IEntity
+        public IEnumerable<T> GetEntitiesAs<T, TRepository>(DateTime position, Order order, string indexNamePrefix = null) where T : IEntity
         {
-            return GetEntities<T>(parentIndexBytes, 0, order, indexNamePrefix);
+            return GetEntitiesAs<T, TRepository>(position.ToFileTimeUtc(), order, indexNamePrefix);
         }
 
-        public IEnumerable<T> GetEntities<T>(byte[] parentIndexBytes, long position, Order order, string indexNamePrefix = null) where T : IEntity
+        public IEnumerable<T> GetEntitiesAs<T, TRepository>(Order order, string indexNamePrefix = null) where T : IEntity
         {
-            return GetEntitiesAs<T, T>(parentIndexBytes, position, order, indexNamePrefix);
+            return GetEntitiesAs<T, TRepository>(0, order, indexNamePrefix);
         }
 
-        public IEnumerable<TResult> GetEntitiesAs<T, TResult>(Guid parentId, DateTime position, Order order, string indexNamePrefix = null) where TResult : IEntity
+        public IEnumerable<T> GetEntitiesAs<T, TRepository>(long position, Order order, string indexNamePrefix = null) where T : IEntity
         {
-            return GetEntitiesAs<T, TResult>(parentId.ToByteArray(), position.ToFileTimeUtc(), order, indexNamePrefix);
-        }
-
-        public IEnumerable<TResult> GetEntitiesAs<T, TResult>(Guid parentId, long position, Order order, string indexNamePrefix = null) where TResult : IEntity
-        {
-            return GetEntitiesAs<T, TResult>(parentId.ToByteArray(), position, order, indexNamePrefix);
-        }
-
-        public IEnumerable<TResult> GetEntitiesAs<T, TResult>(Guid parentId, Order order, string indexNamePrefix = null) where TResult : IEntity
-        {
-            return GetEntitiesAs<T, TResult>(parentId.ToByteArray(), 0, order, indexNamePrefix);
-        }
-
-        public IEnumerable<TResult> GetEntitiesAs<T, TResult>(byte[] parentIndexBytes, Order order, string indexNamePrefix = null) where TResult : IEntity
-        {
-            return GetEntitiesAs<T, TResult>(parentIndexBytes, 0, order, indexNamePrefix);
-        }
-
-        public IEnumerable<TResult> GetEntitiesAs<T, TResult>(byte[] parentIndexBytes, long position, Order order, string indexNamePrefix = null) where TResult : IEntity
-        {
-            if (!Instance.Entities.TryGetValue(typeof(T).Name, out var entityInfo))
-                throw new ArgumentException($"Entity for type '{typeof(T).Name}' is not configured.");
+            if (!Instance.Entities.TryGetValue(typeof(TRepository).Name, out var entityInfo))
+                throw new ArgumentException($"Entity for type '{typeof(TRepository).Name}' is not configured.");
 
             if (entityInfo.ValueIndex == null)
                 throw new Exception($"Entity should contain value index.");
@@ -255,13 +222,13 @@ namespace Borlay.Rocks.Database
                 var columnFamily = Instance.Families[index.ColumnFamilyName];
 
                 if (index.Order == order && (!index.HasMatch || indexNamePrefix != null))
-                    return Instance.Database.GetEntities<TResult>(parentIndexBytes, position, columnFamily, valueColumnFamily, index.AutoRemove);
+                    return Instance.Database.GetEntities<T>(parentIndexBytes, position, columnFamily, valueColumnFamily, index.AutoRemove);
             }
 
-            return Enumerable.Empty<TResult>();
+            return Enumerable.Empty<T>();
         }
 
-        public void DeleteEntities<T>(byte[] parentIndexBytes, long position, Order order) where T : IEntity
+        public void DeleteEntities<T>(long position, Order order) where T : IEntity
         {
             if (!Instance.Entities.TryGetValue(typeof(T).Name, out var entityInfo))
                 throw new ArgumentException($"Entity for type '{typeof(T).Name}' is not configured.");
@@ -279,42 +246,42 @@ namespace Borlay.Rocks.Database
             }
         }
 
-        public IEnumerable<T> GetEntities<T, TEnum>(TEnum _enum, Guid parentId, DateTime position, Order order) where T : IEntity where TEnum : Enum
-        {
-            return GetEntities<T, TEnum>(_enum, parentId.ToByteArray(), position.ToFileTimeUtc(), order);
-        }
+        //public IEnumerable<T> GetEntities<T, TEnum>(TEnum _enum, Guid parentId, DateTime position, Order order) where T : IEntity where TEnum : Enum
+        //{
+        //    return GetEntities<T, TEnum>(_enum, parentId.ToByteArray(), position.ToFileTimeUtc(), order);
+        //}
 
-        public IEnumerable<T> GetEntities<T, TEnum>(TEnum _enum, Guid parentId, long position, Order order) where T : IEntity where TEnum : Enum
-        {
-            return GetEntities<T, TEnum>(_enum, parentId.ToByteArray(), position, order);
-        }
+        //public IEnumerable<T> GetEntities<T, TEnum>(TEnum _enum, Guid parentId, long position, Order order) where T : IEntity where TEnum : Enum
+        //{
+        //    return GetEntities<T, TEnum>(_enum, parentId.ToByteArray(), position, order);
+        //}
 
-        public IEnumerable<T> GetEntities<T, TEnum>(TEnum _enum, byte[] parentIndexBytes, DateTime position, Order order) where T : IEntity where TEnum : Enum
-        {
-            return GetEntities<T, TEnum>(_enum, parentIndexBytes, position.ToFileTimeUtc(), order);
-        }
+        //public IEnumerable<T> GetEntities<T, TEnum>(TEnum _enum, byte[] parentIndexBytes, DateTime position, Order order) where T : IEntity where TEnum : Enum
+        //{
+        //    return GetEntities<T, TEnum>(_enum, parentIndexBytes, position.ToFileTimeUtc(), order);
+        //}
 
-        public IEnumerable<T> GetEntities<T, TEnum>(TEnum _enum, byte[] parentIndexBytes, long position, Order order) where T : IEntity where TEnum : Enum
-        {
-            if (!Instance.Entities.TryGetValue(typeof(T).Name, out var entityInfo))
-                throw new ArgumentException($"Entity for type '{typeof(T).Name}' is not configured.");
+        //public IEnumerable<T> GetEntities<T, TEnum>(TEnum _enum, byte[] parentIndexBytes, long position, Order order) where T : IEntity where TEnum : Enum
+        //{
+        //    if (!Instance.Entities.TryGetValue(typeof(T).Name, out var entityInfo))
+        //        throw new ArgumentException($"Entity for type '{typeof(T).Name}' is not configured.");
 
-            if (entityInfo.ValueIndex == null)
-                throw new Exception($"Entity should contain value index.");
+        //    if (entityInfo.ValueIndex == null)
+        //        throw new Exception($"Entity should contain value index.");
 
-            var valueColumnFamily = Instance.Families[entityInfo.ValueIndex.ColumnFamilyName];
+        //    var valueColumnFamily = Instance.Families[entityInfo.ValueIndex.ColumnFamilyName];
 
-            foreach (var indexKeyPair in entityInfo.Indexes)
-            {
-                var index = indexKeyPair.Value;
-                var columnFamily = Instance.Families[index.ColumnFamilyName];
+        //    foreach (var indexKeyPair in entityInfo.Indexes)
+        //    {
+        //        var index = indexKeyPair.Value;
+        //        var columnFamily = Instance.Families[index.ColumnFamilyName];
 
-                if (index.Order == order && index.HasMatch && index.MatchEnum(_enum))
-                    return Instance.Database.GetEntities<T>(parentIndexBytes, position, columnFamily, valueColumnFamily);
-            }
+        //        if (index.Order == order && index.HasMatch && index.MatchEnum(_enum))
+        //            return Instance.Database.GetEntities<T>(parentIndexBytes, position, columnFamily, valueColumnFamily);
+        //    }
 
-            return Enumerable.Empty<T>();
-        }
+        //    return Enumerable.Empty<T>();
+        //}
 
         public virtual void Commit()
         {
