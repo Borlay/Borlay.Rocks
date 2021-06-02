@@ -37,6 +37,12 @@ namespace Borlay.Rocks.Database
             return instances.GetInstance(parentId, out shardIndex);
         }
 
+        public virtual RocksTransaction CreateTransaction(Guid parentId)
+        {
+            var instance = instances.GetInstance(parentId, out var shardIndex);
+            return new RocksTransaction(instance, parentId, shardIndex, () => { });
+        }
+
         public virtual async Task<RocksTransaction> WaitTransactionAsync(Guid parentId)
         {
             var disposeAction = await AsyncLock.WaitAsync(parentId);
