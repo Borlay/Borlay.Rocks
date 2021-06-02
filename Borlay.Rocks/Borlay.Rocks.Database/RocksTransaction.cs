@@ -34,7 +34,8 @@ namespace Borlay.Rocks.Database
             this.Instance = instance ?? throw new ArgumentNullException(nameof(instance));
 
             Batch = new WriteBatch();
-            this.Position = DateTime.Now.ToFileTimeUtc();
+            this.Position = DateTime.UtcNow.ToFileTime();
+
             this.ShardIndex = shardIndex;
             this.parentIndexBytes = parentIndexBytes ?? throw new ArgumentNullException(nameof(parentIndexBytes));
         }
