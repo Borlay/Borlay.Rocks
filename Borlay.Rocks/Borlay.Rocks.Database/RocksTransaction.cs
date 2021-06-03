@@ -1,4 +1,5 @@
-﻿using RocksDbSharp;
+﻿using Borlay.Arrays;
+using RocksDbSharp;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -9,6 +10,7 @@ namespace Borlay.Rocks.Database
     public class RocksTransaction : IDisposable
     {
         private readonly Action dispose;
+        private readonly List<Action> commits = new List<Action>();
 
         public RocksInstance Instance { get; }
 
@@ -72,18 +74,27 @@ namespace Borlay.Rocks.Database
 
             var valueKey = valueIndex.MakeKey(parentIndexBytes, entity);
 
-            foreach (var index in entityInfo.Indexes)
-            {
-                var key = index.Value.MakeKey(parentIndexBytes, entity);
-                var columnFamily = Instance.Families[index.Value.ColumnFamilyName];
+            var json = Newtonsoft.Json.JsonConvert.SerializeObject(entity, new Newtonsoft.Json.JsonSerializerSettings() { NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore });
+            var bytes = Encoding.UTF8.GetBytes(json);
 
-                if (!index.Value.MatchEntity(entity))
+            foreach (var indexPair in entityInfo.Indexes)
+            {
+                var index = indexPair.Value;
+                var key = index.MakeKey(parentIndexBytes, entity);
+                var byteKey = new ByteArray(key.ToArray()); 
+                var columnFamily = Instance.Families[index.ColumnFamilyName];
+
+                if (!index.MatchEntity(entity))
                     continue;
 
-                if (index.Value.HasValue)
-                    Batch.Write<T>(key, entity, pos, columnFamily);
+                index.RemoveValue(byteKey);
+
+                if (index.HasValue)
+                    Batch.Write(key, entity.GetEntityId(), bytes, pos, columnFamily);
                 else
                     Batch.Write(key, entity.GetEntityId(), pos, valueKey, columnFamily);
+
+                commits.Add(() => index.TrySetValue(byteKey, bytes));
             }
         }
 
@@ -153,16 +164,19 @@ namespace Borlay.Rocks.Database
                     var columnFamily = Instance.Families[index.Value.ColumnFamilyName];
                     var key = index.Value.MakeKey(parentIndexBytes, entity);
 
-                    byte[] entityBytes = null;
+                    if (!index.Value.TryGetValue(key, out var entityBytes))
+                    {
+                        if (index.Value.HasValue)
+                        {
+                            entityBytes = Instance.Database.Get(key.Concat(1), columnFamily);
+                        }
+                        else
+                        {
+                            var valueIndexBytes = Instance.Database.Get(key.Concat(2), columnFamily);
+                            entityBytes = Instance.Database.Get(valueIndexBytes.Concat(1), valueColumnFamily);
+                        }
 
-                    if (index.Value.HasValue)
-                    {
-                        entityBytes = Instance.Database.Get(key.Concat(1), columnFamily);
-                    }
-                    else
-                    {
-                        var valueIndexBytes = Instance.Database.Get(key.Concat(2), columnFamily);
-                        entityBytes = Instance.Database.Get(valueIndexBytes.Concat(1), valueColumnFamily);
+                        index.Value.TrySetValue(key, entityBytes);
                     }
 
                     if(entityBytes?.Length > 0)

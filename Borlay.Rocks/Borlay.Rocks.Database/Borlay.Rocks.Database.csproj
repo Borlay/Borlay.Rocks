@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <PackageReference Include="Borlay.Arrays" Version="1.0.2" />
+    <PackageReference Include="Borlay.Caches" Version="1.0.7" />
     <PackageReference Include="Borlay.Rocks" Version="1.0.3" />
     <PackageReference Include="Newtonsoft.Json" Version="12.0.3" />
     <PackageReference Include="RocksDbNative" Version="6.2.2" />

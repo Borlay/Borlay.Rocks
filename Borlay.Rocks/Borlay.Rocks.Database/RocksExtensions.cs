@@ -16,12 +16,9 @@ namespace Borlay.Rocks.Database
             batch.Put(key.Concat(3), position.ToBytesByAscending(), columnFamily);
         }
 
-        public static void Write<T>(this WriteBatch batch, byte[] key, T record, long position,  ColumnFamilyHandle columnFamily) where T : IEntity
+        public static void Write(this WriteBatch batch, byte[] key, Guid recordId, byte[] bytes, long position,  ColumnFamilyHandle columnFamily)
         {
-            var json = Newtonsoft.Json.JsonConvert.SerializeObject(record, new Newtonsoft.Json.JsonSerializerSettings() { NullValueHandling = NullValueHandling.Ignore });
-            var bytes = Encoding.UTF8.GetBytes(json);
-
-            batch.Put(key.Concat(0), record.GetEntityId().ToByteArray(), columnFamily);
+            batch.Put(key.Concat(0), recordId.ToByteArray(), columnFamily);
             batch.Put(key.Concat(1), bytes, columnFamily);
             batch.Put(key.Concat(3), position.ToBytesByAscending(), columnFamily);
         }
