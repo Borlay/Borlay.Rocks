@@ -42,12 +42,18 @@ namespace Borlay.Rocks.Database
             this.parentIndexBytes = parentIndexBytes ?? throw new ArgumentNullException(nameof(parentIndexBytes));
         }
 
-        public void NextPosition()
+        public long NextPosition()
         {
-            Position++;
+            return ++Position;
         }
 
-        public void SetPosition(int position)
+        public long SetNextPosition<T>(T entity) where T: IPosition
+        {
+            entity.Position = NextPosition();
+            return this.Position;
+        }
+
+        public void SetPosition(long position)
         {
             this.Position = position;
         }

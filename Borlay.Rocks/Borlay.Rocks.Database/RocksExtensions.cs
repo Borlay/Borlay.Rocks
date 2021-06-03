@@ -26,22 +26,33 @@ namespace Borlay.Rocks.Database
         public static IEnumerable<T> GetEntities<T>(this RocksDb db, byte[] parentIndexBytes, long position, ColumnFamilyHandle columnFamily, ColumnFamilyHandle valueColumnFamily, bool autoRemove = true) where T : IEntity
         {
             var records = new Dictionary<Guid, T>();
-            List<(Guid Id, byte[] Key)> toRemove = new List<(Guid Id, byte[] Key)>();
+
+            List<(byte[] First, byte[] Last)> removeRanges = new List<(byte[] First, byte[] Last)>();
+            byte[] firstToRemove = null;
 
             try
             {
                 foreach (var recordJson in db.GetEntitiesBytes(parentIndexBytes, position, columnFamily, valueColumnFamily))
                 {
                     if (records.ContainsKey(recordJson.Item1) && autoRemove)
-                        toRemove.Add((recordJson.Item1, recordJson.Item2));
+                    {
+                        if (firstToRemove == null)
+                            firstToRemove = recordJson.Item2;
+                    }
                     else
                     {
                         if (autoRemove)
-                            toRemove.Add((recordJson.Item1, (byte[])null));
+                        {
+                            if(firstToRemove != null)
+                            {
+                                removeRanges.Add((firstToRemove, recordJson.Item2));
+                                firstToRemove = null;
+                            }
+                        }
 
                         var json = Encoding.UTF8.GetString(recordJson.Item4);
                         var record = Newtonsoft.Json.JsonConvert.DeserializeObject<T>(json);
-                        if(record is IPosition recPosition)
+                        if (record is IPosition recPosition)
                             recPosition.Position = recordJson.Item3;
 
                         records[recordJson.Item1] = record;
@@ -51,8 +62,8 @@ namespace Borlay.Rocks.Database
             }
             finally
             {
-                if(toRemove.Count > 0)
-                    db.RemoveRange(toRemove, columnFamily);
+                if (removeRanges.Count > 0)
+                    db.RemoveRange(removeRanges, columnFamily);
             }
         }
 
@@ -68,6 +79,21 @@ namespace Borlay.Rocks.Database
             var count = toRemove.Count;
             db.RemoveRange(toRemove, columnFamily);
             return count;
+        }
+
+        internal static void RemoveRange(this RocksDb db, List<(byte[] First, byte[] Last)> removeRanges, ColumnFamilyHandle columnFamily)
+        {
+            if (removeRanges.Count == 0) return;
+
+            using (WriteBatch batch = new WriteBatch())
+            {
+                foreach(var removable in removeRanges)
+                {
+                    batch.DeleteRange(removable.First, (ulong)removable.First.Length, removable.Last, (ulong)removable.Last.Length, columnFamily);
+                }
+
+                db.Write(batch);
+            }
         }
 
         internal static int RemoveRange(this RocksDb db, List<(Guid, byte[])> toRemove, ColumnFamilyHandle columnFamily)
