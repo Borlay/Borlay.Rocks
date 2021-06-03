@@ -30,10 +30,27 @@ namespace Borlay.Rocks.Database
             List<(byte[] First, byte[] Last)> removeRanges = new List<(byte[] First, byte[] Last)>();
             byte[] firstToRemove = null;
 
+            int count = 0;
+
             try
             {
                 foreach (var recordJson in db.GetEntitiesBytes(parentIndexBytes, position, columnFamily, valueColumnFamily))
                 {
+                        count++;
+                    if(count > 1000 * 1000)
+                    {
+                        if (autoRemove)
+                        {
+                            if (firstToRemove != null)
+                            {
+                                removeRanges.Add((firstToRemove, recordJson.Item2));
+                                firstToRemove = null;
+                            }
+                        }
+
+                        break;
+                    }
+
                     if (records.ContainsKey(recordJson.Item1) && autoRemove)
                     {
                         if (firstToRemove == null)
@@ -63,27 +80,36 @@ namespace Borlay.Rocks.Database
             finally
             {
                 if (removeRanges.Count > 0)
-                    db.RemoveRange(removeRanges, columnFamily);
+                    db.RemoveRange(columnFamily, removeRanges.ToArray());
             }
         }
 
-        public static int DeleteEntities(this RocksDb db, byte[] parentIndexBytes, long position, ColumnFamilyHandle columnFamily)
+        public static void DeleteEntities(this RocksDb db, byte[] parentIndexBytes, long position, ColumnFamilyHandle columnFamily)
         {
-            List<(Guid, byte[])> toRemove = new List<(Guid, byte[])>();
+            byte[] firstToRemove = null;
+            byte[] lastToRemove = null;
 
             foreach (var recordJson in db.GetEntitiesBytes(parentIndexBytes, position, _key => new byte[0], columnFamily))
             {
-                toRemove.Add((recordJson.Item1, recordJson.Item2));
+                if (firstToRemove == null)
+                    firstToRemove = recordJson.Item2;
+
+                lastToRemove = recordJson.Item2;
             }
 
-            var count = toRemove.Count;
-            db.RemoveRange(toRemove, columnFamily);
-            return count;
+            if(firstToRemove != null && lastToRemove != null)
+            {
+                db.RemoveRange(columnFamily, (firstToRemove, lastToRemove));
+            }
+
+            //var count = toRemove.Count;
+            //db.RemoveRange(toRemove, columnFamily);
+            //return count;
         }
 
-        internal static void RemoveRange(this RocksDb db, List<(byte[] First, byte[] Last)> removeRanges, ColumnFamilyHandle columnFamily)
+        internal static void RemoveRange(this RocksDb db, ColumnFamilyHandle columnFamily, params (byte[] First, byte[] Last)[] removeRanges)
         {
-            if (removeRanges.Count == 0) return;
+            if (removeRanges.Count() == 0) return;
 
             using (WriteBatch batch = new WriteBatch())
             {
