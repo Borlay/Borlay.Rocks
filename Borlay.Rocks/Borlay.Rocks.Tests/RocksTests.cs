@@ -26,7 +26,7 @@ namespace Borlay.Rocks.Tests
             builder.HasIndex<TestEntity>("entity", e => e.Id.ToByteArray(), Order.None, false, out var noneOrderIndex);
 
             var repository = builder.CreateRepository();
-
+            
             var watch = Stopwatch.StartNew();
 
             for (int i = 0; i < 10000; i++)

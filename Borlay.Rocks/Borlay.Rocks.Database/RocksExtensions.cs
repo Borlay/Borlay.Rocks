@@ -36,6 +36,9 @@ namespace Borlay.Rocks.Database
                         toRemove.Add((recordJson.Item1, recordJson.Item2));
                     else
                     {
+                        if (autoRemove)
+                            toRemove.Add((recordJson.Item1, null));
+
                         var json = Encoding.UTF8.GetString(recordJson.Item4);
                         var record = Newtonsoft.Json.JsonConvert.DeserializeObject<T>(json);
                         if(record is IPosition recPosition)
@@ -82,10 +85,14 @@ namespace Borlay.Rocks.Database
                     toRemove.RemoveRange(0, items.Count);
                     iterations++;
 
-                    var firstKey = items[0].Item2;
-                    var lastKey = items[items.Count - 1].Item2;
+                    var removable = items.Where(i => i.Item2?.Length > 0).ToArray();
+                    if (removable.Length == 0)
+                        continue;
 
-                    if (items.Count == 1)
+                    var firstKey = removable[0].Item2;
+                    var lastKey = removable[removable.Length - 1].Item2;
+
+                    if (removable.Length == 1)
                         batch.Delete(firstKey, columnFamily);
                     else
                     {
