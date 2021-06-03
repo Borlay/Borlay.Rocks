@@ -52,7 +52,16 @@ namespace Borlay.Rocks.Database
             this.Position = position;
         }
 
-        public void SaveEntity<T>(T entity) where T: IEntity
+        public byte[] SaveEntity<T>(T entity) where T : IEntity
+        {
+            return SaveEntity<T>(entity, e =>
+            {
+                var json = Newtonsoft.Json.JsonConvert.SerializeObject(entity, new Newtonsoft.Json.JsonSerializerSettings() { NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore });
+                return Encoding.UTF8.GetBytes(json);
+            });
+        }
+
+        public byte[] SaveEntity<T>(T entity, Func<T, byte[]> bodyProvider) where T: IEntity
         {
             if (!Instance.Entities.TryGetValue(typeof(T).Name, out var entityInfo))
                 throw new ArgumentException($"Entity for type '{typeof(T).Name}' is not configured.");
@@ -74,8 +83,9 @@ namespace Borlay.Rocks.Database
 
             var valueKey = valueIndex.MakeKey(parentIndexBytes, entity);
 
-            var json = Newtonsoft.Json.JsonConvert.SerializeObject(entity, new Newtonsoft.Json.JsonSerializerSettings() { NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore });
-            var bytes = Encoding.UTF8.GetBytes(json);
+            //var json = Newtonsoft.Json.JsonConvert.SerializeObject(entity, new Newtonsoft.Json.JsonSerializerSettings() { NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore });
+            //var bytes = Encoding.UTF8.GetBytes(json);
+            var bytes = bodyProvider(entity);
 
             foreach (var indexPair in entityInfo.Indexes)
             {
@@ -96,6 +106,8 @@ namespace Borlay.Rocks.Database
 
                 commits.Add(() => index.TrySetValue(byteKey, bytes));
             }
+
+            return bytes;
         }
 
         public bool ContainsEntity<T>(T entity)
