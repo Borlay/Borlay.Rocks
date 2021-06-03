@@ -301,12 +301,19 @@ namespace Borlay.Rocks.Database
         public virtual void Commit()
         {
             Instance.Database.Write(Batch);
+
+            foreach (var commit in commits)
+                commit.Invoke();
+
+            commits.Clear();
             Batch.Dispose();
             Batch = new WriteBatch();
         }
 
         public virtual void Dispose()
         {
+            commits.Clear();
+
             try
             {
                 Batch.Dispose();
