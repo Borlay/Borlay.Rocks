@@ -16,7 +16,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Borlay.Rocks.Database\Borlay.Rocks.Database.csproj" />
-    <ProjectReference Include="..\Borlay.Rocks\Borlay.Rocks.csproj" />
   </ItemGroup>
 
 </Project>

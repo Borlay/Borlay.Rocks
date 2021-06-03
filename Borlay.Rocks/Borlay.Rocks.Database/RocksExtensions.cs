@@ -26,7 +26,7 @@ namespace Borlay.Rocks.Database
         public static IEnumerable<T> GetEntities<T>(this RocksDb db, byte[] parentIndexBytes, long position, ColumnFamilyHandle columnFamily, ColumnFamilyHandle valueColumnFamily, bool autoRemove = true) where T : IEntity
         {
             var records = new Dictionary<Guid, T>();
-            List<(Guid, byte[])> toRemove = new List<(Guid, byte[])>();
+            List<(Guid Id, byte[] Key)> toRemove = new List<(Guid Id, byte[] Key)>();
 
             try
             {
@@ -37,7 +37,7 @@ namespace Borlay.Rocks.Database
                     else
                     {
                         if (autoRemove)
-                            toRemove.Add((recordJson.Item1, null));
+                            toRemove.Add((recordJson.Item1, (byte[])null));
 
                         var json = Encoding.UTF8.GetString(recordJson.Item4);
                         var record = Newtonsoft.Json.JsonConvert.DeserializeObject<T>(json);
@@ -173,12 +173,14 @@ namespace Borlay.Rocks.Database
                 else if (!lastKey.StartsWith(baseKey))
                     return json;
 
+                var value = iterator.Value();
+
                 switch (itKey[itKey.Length - 1])
                 {
-                    case 0: id = new Guid(iterator.Value()); break;
-                    case 1: json = iterator.Value(); break;
-                    case 2: json = valueByKey(iterator.Value()); break;
-                    case 3: position = iterator.Value().ToLong(); break;
+                    case 0: id = new Guid(value); break;
+                    case 1: json = value; break;
+                    case 2: json = valueByKey(value.Concat(1)); break;
+                    case 3: position = value.ToLong(); break;
                 }
 
                 Array.Resize(ref itKey, itKey.Length - 1);
