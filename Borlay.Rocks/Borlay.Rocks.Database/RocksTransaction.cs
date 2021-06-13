@@ -246,6 +246,9 @@ namespace Borlay.Rocks.Database
 
             var valueColumnFamily = Instance.Families[entityInfo.ValueIndex.ColumnFamilyName];
 
+            if (position != 0 && order == Order.Descending)
+                position = long.MaxValue - position;
+
             foreach (var indexKeyPair in entityInfo.Indexes)
             {
                 if (indexNamePrefix != null && !indexKeyPair.Key.StartsWith(indexNamePrefix))

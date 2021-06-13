@@ -81,6 +81,116 @@ namespace Borlay.Rocks.Tests
         }
 
         [TestMethod]
+        public async Task TestDescOrder()
+        {
+            var builder = new DatabaseBuilder(@"C:\rocks\tests\descorder", 0, 1, true, RocksDbSharp.Recovery.TolerateCorruptedTailRecords, true);
+            builder.Entity<TestEntity>(Order.Descending, out var descIndex);
+            //builder.HasIndex<TestEntity>("entity", Order.Descending, false, out var noneOrderIndex);
+
+            var repository = builder.CreateRepository();
+
+            var watch = Stopwatch.StartNew();
+
+            var parentId = Guid.NewGuid();
+
+            for (int i = 0; i < 30; i++)
+            {
+                var entity = new TestEntity()
+                {
+                    Id = Guid.NewGuid(),
+                    Position = 0,
+                    Value = $"Test {i}",
+                };
+
+                using (var transaction = await repository.WaitTransactionAsync(parentId))
+                {
+                    transaction.SaveEntity(entity);
+                    transaction.Commit();
+                }
+
+                await Task.Delay(10);
+            }
+
+            using (var transaction = await repository.WaitTransactionAsync(parentId))
+            {
+                var entities1 = transaction.GetEntities<TestEntity>(0, Order.Descending).Take(10).ToArray();
+                var minPos1 = entities1.Min(e => e.Position);
+                var maxPos1 = entities1.Max(e => e.Position);
+
+                Assert.AreEqual("Test 29", entities1.First().Value);
+                Assert.AreEqual("Test 20", entities1.Last().Value);
+
+                Assert.AreEqual(maxPos1, entities1.First().Position);
+
+                var entities2 = transaction.GetEntities<TestEntity>(minPos1, Order.Descending).Take(10).ToArray();
+                var minPos2 = entities2.Min(e => e.Position);
+                var maxPos2 = entities2.Max(e => e.Position);
+
+                Assert.AreEqual("Test 20", entities2.First().Value);
+                Assert.AreEqual("Test 11", entities2.Last().Value);
+
+                Assert.AreEqual(maxPos2, entities2.First().Position);
+            }
+
+            watch.Stop();
+        }
+
+        [TestMethod]
+        public async Task TestAscOrder()
+        {
+            var builder = new DatabaseBuilder(@"C:\rocks\tests\ascorder", 0, 1, true, RocksDbSharp.Recovery.TolerateCorruptedTailRecords, true);
+            builder.Entity<TestEntity>(Order.Ascending, out var descIndex);
+            //builder.HasIndex<TestEntity>("entity", Order.Descending, false, out var noneOrderIndex);
+
+            var repository = builder.CreateRepository();
+
+            var watch = Stopwatch.StartNew();
+
+            var parentId = Guid.NewGuid();
+
+            for (int i = 0; i < 30; i++)
+            {
+                var entity = new TestEntity()
+                {
+                    Id = Guid.NewGuid(),
+                    Position = 0,
+                    Value = $"Test {i}",
+                };
+
+                using (var transaction = await repository.WaitTransactionAsync(parentId))
+                {
+                    transaction.SaveEntity(entity);
+                    transaction.Commit();
+                }
+
+                await Task.Delay(10);
+            }
+
+            using (var transaction = await repository.WaitTransactionAsync(parentId))
+            {
+                var entities1 = transaction.GetEntities<TestEntity>(0, Order.Ascending).Take(10).ToArray();
+                var minPos1 = entities1.Min(e => e.Position);
+                var maxPos1 = entities1.Max(e => e.Position);
+
+                Assert.AreEqual("Test 0", entities1.First().Value);
+                Assert.AreEqual("Test 9", entities1.Last().Value);
+
+                Assert.AreEqual(minPos1, entities1.First().Position);
+
+                var entities2 = transaction.GetEntities<TestEntity>(maxPos1, Order.Ascending).Take(10).ToArray();
+                var minPos2 = entities2.Min(e => e.Position);
+                var maxPos2 = entities2.Max(e => e.Position);
+
+                Assert.AreEqual("Test 9", entities2.First().Value);
+                Assert.AreEqual("Test 18", entities2.Last().Value);
+
+                Assert.AreEqual(minPos2, entities2.First().Position);
+            }
+
+            watch.Stop();
+        }
+
+        [TestMethod]
         public async Task TestRemove()
         {
             var builder = new DatabaseBuilder(@"C:\rocks\tests4", 0, 1, true, RocksDbSharp.Recovery.TolerateCorruptedTailRecords, true);

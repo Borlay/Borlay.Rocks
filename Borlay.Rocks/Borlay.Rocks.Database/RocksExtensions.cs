@@ -181,7 +181,7 @@ namespace Borlay.Rocks.Database
             {
                 iterator = iterator.Seek(parentIndexBytes);
                 if (position != 0)
-                    iterator = iterator.Seek(parentIndexBytes.Concat(position.ToBytesByDescending()));
+                    iterator = iterator.Seek(parentIndexBytes.Concat(position.ToBytesByAscending()));
 
                 while (iterator.Valid())
                 {
