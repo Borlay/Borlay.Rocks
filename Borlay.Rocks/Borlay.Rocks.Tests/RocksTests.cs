@@ -246,9 +246,13 @@ namespace Borlay.Rocks.Tests
 
                 var entities1 = transaction.GetEntities<TestEntity>(Order.Descending).ToArray();
 
+                deleteWatch.Stop();
+                deleteWatch.Restart();
+
                 var entities2 = transaction.GetEntities<TestEntity>(Order.Descending).ToArray();
 
-                watch.Stop();
+                deleteWatch.Stop();
+                deleteWatch.Restart();
 
                 Assert.IsNotNull(entities1);
                 Assert.IsNotNull(entities2);
@@ -258,11 +262,90 @@ namespace Borlay.Rocks.Tests
 
                 
             }
-
-
-
-            
         }
+
+        [TestMethod]
+        public async Task TestDeleteEntity()
+        {
+            var builder = new DatabaseBuilder(@"C:\rocks\tests4", 0, 1, true, RocksDbSharp.Recovery.TolerateCorruptedTailRecords, true);
+            builder.Entity<TestEntity>(Order.Descending, out var descIndex);
+            //builder.HasIndex<TestEntity>("entity", Order.None, false, out var noneOrderIndex);
+
+            var repository = builder.CreateRepository();
+
+            var watch = Stopwatch.StartNew();
+
+            var parentId = Guid.NewGuid();
+            var entityId = Guid.NewGuid();
+
+            for (int i = 0; i < 10000; i++)
+            {
+                var entity1 = new TestEntity()
+                {
+                    Id = entityId,
+                    Position = 0,
+                    Value = $"Test 1 {i}",
+                };
+
+                var entity2 = new TestEntity()
+                {
+                    Id = Guid.NewGuid(),
+                    Position = 0,
+                    Value = $"Test 2 {i}",
+                };
+
+                using (var transaction = await repository.WaitTransactionAsync(parentId))
+                {
+                    transaction.SaveEntity(entity1);
+                    transaction.SetNextPosition(entity1);
+                    transaction.SaveEntity(entity1);
+                    transaction.SetNextPosition(entity1);
+                    transaction.SaveEntity(entity1);
+                    transaction.SetNextPosition(entity1);
+                    transaction.SaveEntity(entity2);
+                    transaction.SetNextPosition(entity2);
+
+                    Assert.IsTrue(entity1.Position > 0);
+                    Assert.IsTrue(entity2.Position > entity1.Position);
+
+                    transaction.Commit();
+                }
+            }
+
+            watch.Stop();
+
+            using (var transaction = await repository.WaitTransactionAsync(parentId))
+            {
+                var deleteWatch = Stopwatch.StartNew();
+
+                var entities1 = transaction.GetEntities<TestEntity>(Order.Descending).ToArray();
+
+                deleteWatch.Stop();
+
+                Assert.IsNotNull(entities1);
+                Assert.AreEqual(10001, entities1.Length);
+
+                var entityToDelete = entities1.Single(e => e.Id == entityId);
+
+                transaction.TryGetEntity<TestEntity>(entityToDelete, Order.Descending, out var ent1);
+                Assert.IsNotNull(ent1, "Entity should exist");
+
+                transaction.DeleteEntity(entityToDelete, Order.Descending);
+                transaction.Commit();
+
+                var entities2 = transaction.GetEntities<TestEntity>(Order.Descending).ToArray();
+
+                transaction.TryGetEntity<TestEntity>(entityToDelete, Order.Descending, out var ent2);
+                Assert.IsNull(ent2, "Entity is not deleted");
+
+                var deletedEntity = entities2.FirstOrDefault(e => e.Id == entityId);
+                Assert.IsNull(deletedEntity, "Entity is not deleted");
+
+                Assert.IsNotNull(entities2);
+                Assert.AreEqual(10000, entities2.Length);
+            }
+        }
+
 
         [TestMethod]
         public async Task TestCache()

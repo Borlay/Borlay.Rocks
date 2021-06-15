@@ -23,7 +23,7 @@ namespace Borlay.Rocks.Database
             batch.Put(key.Concat(3), position.ToBytesByAscending(), columnFamily);
         }
 
-        public static IEnumerable<T> GetEntities<T>(this RocksDb db, byte[] parentIndexBytes, long position, ColumnFamilyHandle columnFamily, ColumnFamilyHandle valueColumnFamily, bool autoRemove = true) where T : IEntity
+        public static IEnumerable<T> GetEntitiesO<T>(this RocksDb db, byte[] parentIndexBytes, long position, ColumnFamilyHandle columnFamily, ColumnFamilyHandle valueColumnFamily, bool autoRemove = true) where T : IEntity
         {
             var records = new Dictionary<Guid, T>();
 
@@ -81,6 +81,72 @@ namespace Borlay.Rocks.Database
             {
                 if (removeRanges.Count > 0)
                     db.RemoveRange(columnFamily, removeRanges.ToArray());
+            }
+        }
+
+        public static IEnumerable<T> GetEntities<T>(this RocksDb db, byte[] parentIndexBytes, long position, ColumnFamilyHandle columnFamily, ColumnFamilyHandle valueColumnFamily, bool autoRemove = true) where T : IEntity
+        {
+            var records = new Dictionary<Guid, T>();
+            List<byte[]> keysToDelete = new List<byte[]>();
+
+            int count = 0;
+
+            try
+            {
+                foreach (var recordJson in db.GetEntitiesBytes(parentIndexBytes, position, columnFamily, valueColumnFamily))
+                {
+                    count++;
+                    if (count > 1000 * 1000)
+                        break;
+
+                    if (records.ContainsKey(recordJson.Item1) && autoRemove)
+                    {
+                        keysToDelete.Add(recordJson.Item2);
+                    }
+                    else
+                    {
+                        var json = Encoding.UTF8.GetString(recordJson.Item4);
+                        var record = Newtonsoft.Json.JsonConvert.DeserializeObject<T>(json);
+                        if (record is IPosition recPosition)
+                            recPosition.Position = recordJson.Item3;
+
+                        records[recordJson.Item1] = record;
+                        yield return record;
+                    }
+                }
+            }
+            finally
+            {
+                db.DeleteEntities(keysToDelete, columnFamily);
+            }
+        }
+
+        private static void DeleteEntities(this RocksDb db, IEnumerable<byte[]> keys, ColumnFamilyHandle columnFamily)
+        {
+            if (keys.Count() == 0) return;
+
+            using (WriteBatch batch = new WriteBatch())
+            {
+
+                foreach (var key in keys)
+                {
+                    var _key = key;
+                    Array.Resize(ref _key, key.Length + 1);
+
+                    _key[key.Length] = 0;
+                    batch.Delete(_key, columnFamily);
+
+                    _key[key.Length] = 1;
+                    batch.Delete(_key, columnFamily);
+
+                    _key[key.Length] = 2;
+                    batch.Delete(_key, columnFamily);
+
+                    _key[key.Length] = 3;
+                    batch.Delete(_key, columnFamily);
+                }
+
+                db.Write(batch);
             }
         }
 

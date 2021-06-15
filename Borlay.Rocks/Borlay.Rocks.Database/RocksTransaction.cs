@@ -264,6 +264,85 @@ namespace Borlay.Rocks.Database
             return Enumerable.Empty<T>();
         }
 
+        /// <summary>
+        /// Delete entity from index that matches.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="entity"></param>
+        /// <param name="order"></param>
+        /// <param name="indexNamePrefix"></param>
+        public void DeleteEntity<T>(T entity, Order order, string indexNamePrefix = null) where T : IEntity
+        {
+            DeleteEntityAs<T, T>(entity, order, indexNamePrefix);
+        }
+
+
+        /// <summary>
+        /// Delete entity from index that matches.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="entity"></param>
+        /// <param name="order"></param>
+        /// <param name="indexNamePrefix"></param>
+        public void DeleteEntityAs<T, TRepository>(T entity, Order order, string indexNamePrefix = null) where T : IEntity
+        {
+            if (!Instance.Entities.TryGetValue(typeof(T).Name, out var entityInfo))
+                throw new ArgumentException($"Entity for type '{typeof(T).Name}' is not configured.");
+
+            foreach (var index in entityInfo.Indexes)
+            {
+                if (index.Value.Order == order && index.Value.MatchEntity(entity))
+                {
+                    var columnFamily = Instance.Families[index.Value.ColumnFamilyName];
+                    var key = index.Value.MakeKey(parentIndexBytes, entity);
+
+                    index.Value.RemoveValue(key);
+                    Batch.Delete(key.Concat(0), columnFamily);
+                    Batch.Delete(key.Concat(1), columnFamily);
+                    Batch.Delete(key.Concat(2), columnFamily);
+                    Batch.Delete(key.Concat(3), columnFamily);
+                }
+            }
+        }
+
+
+        /// <summary>
+        /// Delete entity from all indexes.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="entity"></param>
+        /// <param name="order"></param>
+        /// <param name="indexNamePrefix"></param>
+        public void DeleteEntity<T>(T entity) where T : IEntity
+        {
+            DeleteEntityAs<T, T>(entity);
+        }
+
+        /// <summary>
+        /// Delete entity from all indexes.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="entity"></param>
+        /// <param name="order"></param>
+        /// <param name="indexNamePrefix"></param>
+        public void DeleteEntityAs<T, TRepository>(T entity) where T : IEntity
+        {
+            if (!Instance.Entities.TryGetValue(typeof(T).Name, out var entityInfo))
+                throw new ArgumentException($"Entity for type '{typeof(T).Name}' is not configured.");
+
+            foreach (var index in entityInfo.Indexes)
+            {
+                var columnFamily = Instance.Families[index.Value.ColumnFamilyName];
+                var key = index.Value.MakeKey(parentIndexBytes, entity);
+
+                index.Value.RemoveValue(key);
+                Batch.Delete(key.Concat(0), columnFamily);
+                Batch.Delete(key.Concat(1), columnFamily);
+                Batch.Delete(key.Concat(2), columnFamily);
+                Batch.Delete(key.Concat(3), columnFamily);
+            }
+        }
+
         public void DeleteEntities<T>(long position, Order order) where T : IEntity
         {
             if (!Instance.Entities.TryGetValue(typeof(T).Name, out var entityInfo))
@@ -281,6 +360,8 @@ namespace Borlay.Rocks.Database
                     Instance.Database.DeleteEntities(parentIndexBytes, position, columnFamily);
             }
         }
+
+        
 
         //public IEnumerable<T> GetEntities<T, TEnum>(TEnum _enum, Guid parentId, DateTime position, Order order) where T : IEntity where TEnum : Enum
         //{
