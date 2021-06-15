@@ -100,9 +100,7 @@ namespace Borlay.Rocks.Database
                         break;
 
                     if (records.ContainsKey(recordJson.Item1) && autoRemove)
-                    {
                         keysToDelete.Add(recordJson.Item2);
-                    }
                     else
                     {
                         var json = Encoding.UTF8.GetString(recordJson.Item4);
@@ -117,11 +115,11 @@ namespace Borlay.Rocks.Database
             }
             finally
             {
-                db.DeleteEntities(keysToDelete, columnFamily);
+                db.DeleteEntities(columnFamily, keysToDelete.ToArray());
             }
         }
 
-        private static void DeleteEntities(this RocksDb db, IEnumerable<byte[]> keys, ColumnFamilyHandle columnFamily)
+        private static void DeleteEntities(this RocksDb db, ColumnFamilyHandle columnFamily, params byte[][] keys)
         {
             if (keys.Count() == 0) return;
 

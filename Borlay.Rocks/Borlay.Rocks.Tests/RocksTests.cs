@@ -239,6 +239,7 @@ namespace Borlay.Rocks.Tests
             }
 
             watch.Stop();
+            watch.Restart();
 
             using (var transaction = await repository.WaitTransactionAsync(parentId))
             {
