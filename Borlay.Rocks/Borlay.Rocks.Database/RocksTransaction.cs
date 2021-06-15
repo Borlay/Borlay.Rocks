@@ -286,8 +286,8 @@ namespace Borlay.Rocks.Database
         /// <param name="indexNamePrefix"></param>
         public void DeleteEntityAs<T, TRepository>(T entity, Order order, string indexNamePrefix = null) where T : IEntity
         {
-            if (!Instance.Entities.TryGetValue(typeof(T).Name, out var entityInfo))
-                throw new ArgumentException($"Entity for type '{typeof(T).Name}' is not configured.");
+            if (!Instance.Entities.TryGetValue(typeof(TRepository).Name, out var entityInfo))
+                throw new ArgumentException($"Entity for type '{typeof(TRepository).Name}' is not configured.");
 
             foreach (var index in entityInfo.Indexes)
             {
@@ -327,8 +327,8 @@ namespace Borlay.Rocks.Database
         /// <param name="indexNamePrefix"></param>
         public void DeleteEntityAs<T, TRepository>(T entity) where T : IEntity
         {
-            if (!Instance.Entities.TryGetValue(typeof(T).Name, out var entityInfo))
-                throw new ArgumentException($"Entity for type '{typeof(T).Name}' is not configured.");
+            if (!Instance.Entities.TryGetValue(typeof(TRepository).Name, out var entityInfo))
+                throw new ArgumentException($"Entity for type '{typeof(TRepository).Name}' is not configured.");
 
             foreach (var index in entityInfo.Indexes)
             {
